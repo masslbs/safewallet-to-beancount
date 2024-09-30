@@ -8,8 +8,8 @@
     "build": "tsc"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "martin.becze@mass.market",
+  "license": "GPL2",
   "dependencies": {
     "@types/node": "^20.12.7",
     "ts-command-line-args": "^2.5.1",
