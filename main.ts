@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 import { parse } from "ts-command-line-args";
 import { formatEther } from "viem";
 import { readFile } from "node:fs/promises";
