@@ -32,6 +32,8 @@
           version = "0.0.1";
           src = ./.;
           permissions.allow.all = true;
+          # chalk which is a dep of ts-command-line use __proto__
+          additionalDenoArgs = ["--unstable-unsafe-proto"];
         };
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
