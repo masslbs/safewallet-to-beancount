@@ -82,7 +82,7 @@ async function main() {
   let fetching = true;
   let offset = 0;
   while (fetching) {
-    const url = `${safeEndpoint}/api/v1/safes/${args.address}/all-transactions/?ordering=execution_date&limit=20&offset=${offset}&trusted=true`;
+    const url = `${safeEndpoint}/api/v1/safes/${args.address}/all-transactions/?ordering=timestamp&limit=20&offset=${offset}&trusted=true`;
     const transactions = await fetch(url).then((res) => res.json());
     transactions.results.forEach(txToEntry);
     if (!transactions.next) {
@@ -95,22 +95,36 @@ async function main() {
 function trimDate(date: string) {
   return date.slice(0, 10);
 }
+// ether doesn't have any token info assiocated with it so we must add it here
+function unifyTransferFormat(transfers: any) {
+  return transfers.map((trans: any) => {
+    if (trans.type === "ETHER_TRANSFER") {
+      trans.tokenInfo = { symbol: "ETH", decimals: 18 };
+    }
+    return trans;
+  });
+}
 
 function txToEntry(tx: any) {
+  tx.transfers = unifyTransferFormat(tx.transfers);
   const date = trimDate(tx.executionDate);
   let title = "";
   let transaction: string = "";
   // some dapp interaction
   if (tx.origin?.length > 2) {
-    const origin = JSON.parse(tx.origin);
-    title = `${origin.name} (${origin.url})`;
+    try {
+      const origin = JSON.parse(tx.origin);
+      title = `${origin.name} (${origin.url})`;
+    } catch {
+      title = tx.origin;
+    }
   }
   if (tx.dataDecoded) {
     title = `${title} called ${tx.dataDecoded.method}`;
   }
 
+  // generally if there are two transfers, it's a swap
   if (tx.transfers.length === 2) {
-    // generally if there are two transfers, it's a swap
     let transfer1: any;
     let transfer2: any;
 
@@ -140,14 +154,14 @@ function txToEntry(tx: any) {
   } else if (tx.transfers.length === 1) {
     // a simple transfer
     // if the token is not trusted, we don't want to track it
-    if (!tx.transfers[0].tokenInfo.trusted) return;
-    if (tx.transfers[0].to === args.address) {
-      title = `received ${tx.transfers[0].tokenInfo.symbol}`;
+    const transfer = tx.transfers[0];
+    if (!transfer.tokenInfo.trusted) return;
+    if (transfer.to === args.address) {
+      title = `received ${transfer.tokenInfo.symbol}`;
     } else {
-      title = `sent ${tx.transfers[0].tokenInfo.symbol}`;
+      title = `sent ${transfer.tokenInfo.symbol}`;
     }
 
-    const transfer = tx.transfers[0];
     const amount =
       BigInt(transfer.value) / 10n ** BigInt(transfer.tokenInfo.decimals);
     transaction = `  ${getAccount(
