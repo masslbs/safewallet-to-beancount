@@ -2,43 +2,75 @@
   description = "A very basic flake";
 
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:aMOPel/nixpkgs/feat/buildDenoPackage-second";
     flake-parts.url = "github:hercules-ci/flake-parts";
-    nix-deno.url = "github:wanderer/nix-deno";
+    systems.url = "github:nix-systems/default";
+    pre-commit-hooks = {
+      url = "github:cachix/git-hooks.nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = inputs @ {
     self,
     nixpkgs,
-    nix-deno,
     flake-parts,
+    ...
   }:
     flake-parts.lib.mkFlake {inherit inputs;} {
-      systems = ["x86_64-linux" "aarch64-linux" "aarch64-darwin" "x86_64-darwin"];
+      systems = import inputs.systems;
+      imports = [
+        inputs.pre-commit-hooks.flakeModule
+      ];
       perSystem = {
-        config,
-        self',
-        inputs',
         pkgs,
-        system,
+        config,
         ...
       }: {
-        _module.args.pkgs = import inputs.nixpkgs {
-          inherit system;
-          overlays = [inputs.nix-deno.overlays.default];
+        pre-commit = {
+          check.enable = true;
+          settings = {
+            src = ./.;
+            hooks = {
+              alejandra.enable = true;
+              typos = {
+                # this tell typos not to check excluded files even if pre-commit tell typos to check them
+                args = ["--force-exclude"];
+                enable = true;
+              };
+              #TODO: tries to download modules on nix flake check
+              denolint = {
+                enable = true;
+                settings.configPath = "./deno.json";
+              };
+              denofmt = {
+                enable = true;
+                settings.configPath = "./deno.json";
+              };
+            };
+          };
         };
-        packages.default = pkgs.denoPlatform.mkDenoBinary {
-          name = "s2bc";
-          version = "0.0.1";
+        packages.default = pkgs.buildDenoPackage {
+          pname = "safe-to-beancount";
+          version = "0.0.0";
+          denoDepsHash = "sha256-xlI1kg/K5ONcTBWFQ+Uu2U8XpfurFHKIQkt2nHinx70=";
           src = ./.;
-          permissions.allow.all = true;
-          # chalk which is a dep of ts-command-line use __proto__
-          additionalDenoArgs = ["--unstable-unsafe-proto"];
+          binaryEntrypointPath = "./main.ts";
+          denoCompileFlags = [
+            "--allow-env"
+            "--allow-net"
+          ];
         };
         devShells.default = pkgs.mkShell {
-          buildInputs = with pkgs; [
-            deno
-          ];
+          buildInputs = with pkgs;
+            [
+              typos-lsp # code spell checker
+            ]
+            ++ config.pre-commit.settings.enabledPackages;
+
+          shellHook = ''
+            ${config.pre-commit.settings.installationScript}
+          '';
         };
       };
     };

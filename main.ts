@@ -1,6 +1,11 @@
 import { parse } from "ts-command-line-args";
-import { formatEther } from "viem";
+import { formatEther } from "@wevm/viem";
 import { readFile } from "node:fs/promises";
+import SafeApiKit, {
+  type SafeMultisigTransactionWithTransfersResponse,
+  type TransferResponse,
+} from "@safe-global/api-kit";
+import { assert } from "@std/assert";
 
 interface ICopyFilesArguments {
   address: string;
@@ -43,12 +48,16 @@ export const args = parse<ICopyFilesArguments>(
   },
 );
 
-const safeEndpoint = "https://safe-transaction-mainnet.safe.global";
 type Label = {
   [key: string]: string;
 };
 let labels: Label = {};
 const usedLabels: Set<string> = new Set();
+
+const apiKit = new SafeApiKit({
+  chainId: 1n, // set the correct chainId
+  txServiceUrl: "https://safe-transaction-mainnet.safe.global/api",
+});
 
 // creates an open account statement if the account is not already open
 function openAccount(account: string, date: string) {
@@ -74,39 +83,37 @@ async function main() {
     try {
       const contents = await readFile(args.labels, { encoding: "utf8" });
       labels = JSON.parse(contents);
-    } catch (err: any) {
-      console.error(err.message);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        console.error(err.message);
+      }
     }
   }
 
-  let fetching = true;
-  let offset = 0;
-  while (fetching) {
-    const url = `${safeEndpoint}/api/v1/safes/${args.address}/all-transactions/?ordering=timestamp&limit=20&offset=${offset}&trusted=true`;
-    const transactions = await fetch(url).then((res) => res.json());
-    transactions.results.forEach(txToEntry);
-    if (!transactions.next) {
-      fetching = false;
-    }
-    offset += 20;
-  }
+  const transactions = await apiKit.getAllTransactions(args.address, {
+    trusted: true,
+    ordering: "timestamp",
+  });
+  transactions.results.forEach(txToEntry);
 }
 
 function trimDate(date: string) {
   return date.slice(0, 10);
 }
-// ether doesn't have any token info assiocated with it so we must add it here
-function unifyTransferFormat(transfers: any) {
-  return transfers.map((trans: any) => {
-    if (trans.type === "ETHER_TRANSFER") {
-      trans.tokenInfo = { symbol: "ETH", decimals: 18 };
-    }
-    return trans;
-  });
-}
+// ether doesn't have any token info associated with it so we must add it here
+// function unifyTransferFormat(transfers: any) {
+//   return transfers.map((trans: any) => {
+//     if (trans.type === "ETHER_TRANSFER") {
+//       trans.tokenInfo = { symbol: "ETH", decimals: 18 };
+//     }
+//     return trans;
+//   });
+// }
 
-function txToEntry(tx: any) {
-  tx.transfers = unifyTransferFormat(tx.transfers);
+function txToEntry(tx: SafeMultisigTransactionWithTransfersResponse) {
+  // console.log(tx);
+  // const transfers = unifyTransferFormat(tx.transfers);
+  assert(tx.executionDate, "Execution date is required");
   const date = trimDate(tx.executionDate);
   let title = "";
   let transaction: string = "";
@@ -125,8 +132,8 @@ function txToEntry(tx: any) {
 
   // generally if there are two transfers, it's a swap
   if (tx.transfers.length === 2) {
-    let transfer1: any;
-    let transfer2: any;
+    let transfer1: TransferResponse;
+    let transfer2: TransferResponse;
 
     if (tx.transfers[0].to === args.address) {
       transfer1 = tx.transfers[1];
@@ -136,56 +143,66 @@ function txToEntry(tx: any) {
       transfer2 = tx.transfers[1];
     }
 
-    const amount1 =
-      BigInt(transfer1.value) / 10n ** BigInt(transfer1.tokenInfo.decimals);
-    const amount2 =
-      BigInt(transfer2.value) / 10n ** BigInt(transfer2.tokenInfo.decimals);
+    const amount1 = BigInt(transfer1.value!) /
+      10n ** BigInt(transfer1.tokenInfo!.decimals!);
+    const amount2 = BigInt(transfer2.value!) /
+      10n ** BigInt(transfer2.tokenInfo!.decimals!);
 
-    if (title === "")
-      title = `swaped ${transfer1.tokenInfo.symbol.toUpperCase()} to ${transfer2.tokenInfo.symbol.toUpperCase()}`;
-    transaction = `  ${getAccount(
-      transfer1.from,
-      transfer1.executionDate,
-    )}  -${amount1} ${transfer1.tokenInfo.symbol.toUpperCase()} @@ ${amount2} ${transfer2.tokenInfo.symbol.toUpperCase()}
-  ${getAccount(
-    transfer2.to,
-    transfer2.executionDate,
-  )}  ${amount2} ${transfer2.tokenInfo.symbol.toUpperCase()}`;
+    if (title === "") {
+      title = `swapped ${transfer1.tokenInfo!.symbol.toUpperCase()} to ${
+        transfer2.tokenInfo!.symbol.toUpperCase()
+      }`;
+    }
+    transaction = `  ${
+      getAccount(
+        transfer1.from,
+        transfer1.executionDate,
+      )
+    }  -${amount1} ${transfer1.tokenInfo!.symbol.toUpperCase()} @@ ${amount2} ${
+      transfer2.tokenInfo!.symbol.toUpperCase()
+    }
+  ${
+      getAccount(
+        transfer2.to,
+        transfer2.executionDate,
+      )
+    }  ${amount2} ${transfer2.tokenInfo!.symbol.toUpperCase()}`;
   } else if (tx.transfers.length === 1) {
     // a simple transfer
     // if the token is not trusted, we don't want to track it
     const transfer = tx.transfers[0];
-    if (!transfer.tokenInfo.trusted) return;
+    if (!transfer.tokenInfo?.trusted) return;
     if (transfer.to === args.address) {
       title = `received ${transfer.tokenInfo.symbol}`;
     } else {
       title = `sent ${transfer.tokenInfo.symbol}`;
     }
 
-    const amount =
-      BigInt(transfer.value) / 10n ** BigInt(transfer.tokenInfo.decimals);
-    transaction = `  ${getAccount(
-      transfer.from,
-      transfer.executionDate,
-    )}  -${amount} ${transfer.tokenInfo.symbol}
-  ${getAccount(
-    transfer.to,
-    transfer.executionDate,
-  )}  ${amount} ${transfer.tokenInfo.symbol.toUpperCase()}`;
+    const amount = BigInt(transfer.value!) /
+      10n ** BigInt(transfer.tokenInfo.decimals!);
+    transaction = `  ${
+      getAccount(
+        transfer.from,
+        transfer.executionDate,
+      )
+    }  -${amount} ${transfer.tokenInfo.symbol}
+  ${
+      getAccount(
+        transfer.to,
+        transfer.executionDate,
+      )
+    }  ${amount} ${transfer.tokenInfo.symbol.toUpperCase()}`;
   }
   const description = `${date} * "${title}"`;
 
   let result = `${description}`;
-  // if we created the tx then we paid the fee
-  if (tx.transactionHash) {
-    result = result.concat(`\n  tx: "${tx.transactionHash}"`);
-  } else {
-    result = result.concat(`\n  tx: "${tx.txHash}"`);
-  }
+  result = result.concat(`\n  tx: "${tx.transactionHash}"`);
 
   if (tx.txType === "MULTISIG_TRANSACTION") {
     result = result.concat(`\n  nonce: ${tx.nonce}`);
-    const fee = formatEther(tx.fee);
+    assert(tx.fee, "Fee is not defined");
+    const fee = formatEther(BigInt(tx.fee));
+    assert(tx.executor, "Executor is not defined");
     result = result.concat(
       `\n  ${getAccount(tx.executor, tx.executionDate)}  -${fee} ETH
   ${getAccount("Expenses:Fees:Crypto", tx.executionDate)}  ${fee} ETH`,
