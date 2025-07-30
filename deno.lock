@@ -8,6 +8,8 @@
     "npm:@noble/hashes@1.8.0": "1.8.0",
     "npm:@safe-global/api-kit@4": "4.0.0",
     "npm:@safe-global/types-kit@3": "3.0.0",
+    "npm:@scure/bip32@1.7.0": "1.7.0",
+    "npm:@scure/bip39@1.6.0": "1.6.0",
     "npm:@types/node@^24.1.0": "24.1.0",
     "npm:abitype@1.0.8": "1.0.8",
     "npm:isows@1.0.7": "1.0.7_ws@8.18.2",
@@ -31,6 +33,8 @@
       "dependencies": [
         "npm:@noble/curves",
         "npm:@noble/hashes",
+        "npm:@scure/bip32",
+        "npm:@scure/bip39",
         "npm:abitype",
         "npm:isows",
         "npm:ox"

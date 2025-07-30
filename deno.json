@@ -3,6 +3,5 @@
   "imports": {
     "@std/assert": "jsr:@std/assert@^1.0.13",
     "@wevm/viem": "jsr:@wevm/viem@^2.33.1"
-  },
-  "nodeModulesDir": "none"
+  }
 }

@@ -53,12 +53,13 @@
         packages.default = pkgs.buildDenoPackage {
           pname = "safe-to-beancount";
           version = "0.0.0";
-          denoDepsHash = "sha256-xlI1kg/K5ONcTBWFQ+Uu2U8XpfurFHKIQkt2nHinx70=";
+          denoDepsHash = "sha256-uuGpqS6tjKHEZ2UYSH7ZIadGwrlWnr/eKMrXSF5wuB8=";
           src = ./.;
           binaryEntrypointPath = "./main.ts";
           denoCompileFlags = [
             "--allow-env"
             "--allow-net"
+            "--no-check"
           ];
         };
         devShells.default = pkgs.mkShell {
