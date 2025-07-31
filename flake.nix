@@ -59,6 +59,7 @@
           denoCompileFlags = [
             "--allow-env"
             "--allow-net"
+            "--allow-read"
             "--no-check"
           ];
         };

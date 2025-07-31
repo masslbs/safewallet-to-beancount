@@ -89,12 +89,22 @@ async function main() {
       }
     }
   }
-
-  const transactions = await apiKit.getAllTransactions(args.address, {
-    trusted: true,
-    ordering: "timestamp",
-  });
-  transactions.results.forEach(txToEntry);
+  let fetching = true;
+  let offset = 0;
+  const limit = 20;
+  while (fetching) {
+    const transactions = await apiKit.getAllTransactions(args.address, {
+      trusted: true,
+      ordering: "timestamp",
+      limit,
+      offset,
+    });
+    transactions.results.forEach(txToEntry);
+    if (!transactions.next) {
+      fetching = false;
+    }
+    offset += limit;
+  }
 }
 
 function trimDate(date: string) {
