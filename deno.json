@@ -1,7 +1,13 @@
 {
+  "name": "safewallet-to-beancount",
+  "author": "martin.becze@mass.market",
+  "license": "GPL2",
   "version": "0.0.1",
   "imports": {
+    "@safe-global/api-kit": "npm:@safe-global/api-kit@^4.0.0",
     "@std/assert": "jsr:@std/assert@^1.0.13",
-    "@wevm/viem": "jsr:@wevm/viem@^2.33.1"
-  }
+    "@wevm/viem": "jsr:@wevm/viem@^2.33.2",
+    "ts-command-line-args": "npm:ts-command-line-args@^2.5.1"
+  },
+  "exports": "./main.ts"
 }

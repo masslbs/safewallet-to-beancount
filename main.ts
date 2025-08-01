@@ -2,6 +2,9 @@ import { parse } from "ts-command-line-args";
 import { formatEther } from "@wevm/viem";
 import { readFile } from "node:fs/promises";
 import SafeApiKit, {
+  type AllTransactionsListResponse,
+  type EthereumTxWithTransfersResponse,
+  type SafeModuleTransactionWithTransfersResponse,
   type SafeMultisigTransactionWithTransfersResponse,
   type TransferResponse,
 } from "@safe-global/api-kit";
@@ -13,7 +16,7 @@ interface ICopyFilesArguments {
   help?: boolean;
 }
 
-export const args = parse<ICopyFilesArguments>(
+const args = parse<ICopyFilesArguments>(
   {
     address: {
       type: String,
@@ -54,6 +57,8 @@ type Label = {
 let labels: Label = {};
 const usedLabels: Set<string> = new Set();
 
+// @ts-ignore: SafeApiKit seems to be not typed correctly
+// https://arethetypeswrong.github.io/?p=%40safe-global%2Fapi-kit%404.0.0
 const apiKit = new SafeApiKit({
   chainId: 1n, // set the correct chainId
   txServiceUrl: "https://safe-transaction-mainnet.safe.global/api",
@@ -93,12 +98,13 @@ async function main() {
   let offset = 0;
   const limit = 20;
   while (fetching) {
-    const transactions = await apiKit.getAllTransactions(args.address, {
-      trusted: true,
-      ordering: "timestamp",
-      limit,
-      offset,
-    });
+    const transactions: AllTransactionsListResponse = await apiKit
+      .getAllTransactions(args.address, {
+        trusted: false,
+        ordering: "timestamp",
+        limit,
+        offset,
+      });
     transactions.results.forEach(txToEntry);
     if (!transactions.next) {
       fetching = false;
@@ -120,15 +126,19 @@ function trimDate(date: string) {
 //   });
 // }
 
-function txToEntry(tx: SafeMultisigTransactionWithTransfersResponse) {
-  // console.log(tx);
+function txToEntry(
+  tx:
+    | SafeModuleTransactionWithTransfersResponse
+    | SafeMultisigTransactionWithTransfersResponse
+    | EthereumTxWithTransfersResponse,
+) {
   // const transfers = unifyTransferFormat(tx.transfers);
   assert(tx.executionDate, "Execution date is required");
   const date = trimDate(tx.executionDate);
   let title = "";
   let transaction: string = "";
   // some dapp interaction
-  if (tx.origin?.length > 2) {
+  if ("origin" in tx && tx.origin?.length > 2) {
     try {
       const origin = JSON.parse(tx.origin);
       title = `${origin.name} (${origin.url})`;
@@ -136,7 +146,7 @@ function txToEntry(tx: SafeMultisigTransactionWithTransfersResponse) {
       title = tx.origin;
     }
   }
-  if (tx.dataDecoded) {
+  if ("dataDecoded" in tx && tx.dataDecoded) {
     title = `${title} called ${tx.dataDecoded.method}`;
   }
 
@@ -195,18 +205,36 @@ function txToEntry(tx: SafeMultisigTransactionWithTransfersResponse) {
         transfer.from,
         transfer.executionDate,
       )
-    }  -${amount} ${transfer.tokenInfo.symbol}
+    }  -${amount} ${transfer.tokenInfo.symbol.toUpperCase()}
   ${
       getAccount(
         transfer.to,
         transfer.executionDate,
       )
     }  ${amount} ${transfer.tokenInfo.symbol.toUpperCase()}`;
+  } else {
+    title += ` Cleanup`;
+    for (const transfer of tx.transfers) {
+      const amount = BigInt(transfer.value!) /
+        10n ** BigInt(transfer.tokenInfo?.decimals!);
+      transaction += `  ${
+        getAccount(
+          transfer.from,
+          transfer.executionDate,
+        )
+      }  -${amount} ${transfer.tokenInfo?.symbol.toUpperCase()}
+    ${
+        getAccount(
+          transfer.to,
+          transfer.executionDate,
+        )
+      }  ${amount} ${transfer.tokenInfo?.symbol.toUpperCase()}\n`;
+    }
   }
   const description = `${date} * "${title}"`;
 
   let result = `${description}`;
-  result = result.concat(`\n  tx: "${tx.transactionHash}"`);
+  result = result.concat(`\n  tx: "${tx.transactionHash || tx.txHash}"`);
 
   if (tx.txType === "MULTISIG_TRANSACTION") {
     result = result.concat(`\n  nonce: ${tx.nonce}`);
