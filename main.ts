@@ -9,6 +9,7 @@ import SafeApiKit, {
   type TransferResponse,
 } from "@safe-global/api-kit";
 import { assert } from "@std/assert";
+import { type Postings, Transaction } from "./beancount.ts";
 
 interface ICopyFilesArguments {
   address: string;
@@ -65,14 +66,15 @@ const apiKit = new SafeApiKit({
 });
 
 // creates an open account statement if the account is not already open
-function openAccount(account: string, date: string) {
+function openAccount(account: string, date: Date) {
   if (!usedLabels.has(account)) {
     usedLabels.add(account);
-    console.log(`${trimDate(date)} open ${account}`);
+    const dateStr = date.toISOString().split("T")[0];
+    console.log(`${dateStr} open ${account}`);
   }
 }
 
-function getAccount(address: string, date: string) {
+function getAccount(address: string, date: Date) {
   const labeled = labels[address];
   if (labeled) {
     openAccount(labeled, date);
@@ -113,30 +115,16 @@ async function main() {
   }
 }
 
-function trimDate(date: string) {
-  return date.slice(0, 10);
-}
-// ether doesn't have any token info associated with it so we must add it here
-// function unifyTransferFormat(transfers: any) {
-//   return transfers.map((trans: any) => {
-//     if (trans.type === "ETHER_TRANSFER") {
-//       trans.tokenInfo = { symbol: "ETH", decimals: 18 };
-//     }
-//     return trans;
-//   });
-// }
-
 function txToEntry(
   tx:
     | SafeModuleTransactionWithTransfersResponse
     | SafeMultisigTransactionWithTransfersResponse
     | EthereumTxWithTransfersResponse,
 ) {
-  // const transfers = unifyTransferFormat(tx.transfers);
   assert(tx.executionDate, "Execution date is required");
-  const date = trimDate(tx.executionDate);
+  const date = new Date(tx.executionDate);
   let title = "";
-  let transaction: string = "";
+
   // some dapp interaction
   if ("origin" in tx && tx.origin?.length > 2) {
     try {
@@ -148,6 +136,20 @@ function txToEntry(
   }
   if ("dataDecoded" in tx && tx.dataDecoded) {
     title = `${title} called ${tx.dataDecoded.method}`;
+  }
+
+  let postings: Postings[] = [];
+  const metadata: Record<string, string> = {};
+
+  // Handle different transaction hash property names based on transaction type
+  if ("transactionHash" in tx && tx.transactionHash) {
+    metadata.tx = tx.transactionHash;
+  } else if ("txHash" in tx && tx.txHash) {
+    metadata.tx = tx.txHash;
+  }
+
+  if (tx.txType === "MULTISIG_TRANSACTION") {
+    metadata.nonce = tx.nonce?.toString();
   }
 
   // generally if there are two transfers, it's a swap
@@ -173,25 +175,26 @@ function txToEntry(
         transfer2.tokenInfo!.symbol.toUpperCase()
       }`;
     }
-    transaction = `  ${
-      getAccount(
-        transfer1.from,
-        transfer1.executionDate,
-      )
-    }  -${amount1} ${transfer1.tokenInfo!.symbol.toUpperCase()} @@ ${amount2} ${
-      transfer2.tokenInfo!.symbol.toUpperCase()
-    }
-  ${
-      getAccount(
-        transfer2.to,
-        transfer2.executionDate,
-      )
-    }  ${amount2} ${transfer2.tokenInfo!.symbol.toUpperCase()}`;
+
+    postings = [
+      {
+        account: getAccount(transfer1.from, date),
+        amount: `-${amount1}`,
+        currency: transfer1.tokenInfo!.symbol.toUpperCase(),
+        totalCost: `${amount2} ${transfer2.tokenInfo!.symbol.toUpperCase()}`,
+      },
+      {
+        account: getAccount(transfer2.to, date),
+        amount: `${amount2}`,
+        currency: transfer2.tokenInfo!.symbol.toUpperCase(),
+      },
+    ];
   } else if (tx.transfers.length === 1) {
     // a simple transfer
     // if the token is not trusted, we don't want to track it
     const transfer = tx.transfers[0];
     if (!transfer.tokenInfo?.trusted) return;
+
     if (transfer.to === args.address) {
       title = `received ${transfer.tokenInfo.symbol}`;
     } else {
@@ -200,55 +203,71 @@ function txToEntry(
 
     const amount = BigInt(transfer.value!) /
       10n ** BigInt(transfer.tokenInfo.decimals!);
-    transaction = `  ${
-      getAccount(
-        transfer.from,
-        transfer.executionDate,
-      )
-    }  -${amount} ${transfer.tokenInfo.symbol.toUpperCase()}
-  ${
-      getAccount(
-        transfer.to,
-        transfer.executionDate,
-      )
-    }  ${amount} ${transfer.tokenInfo.symbol.toUpperCase()}`;
-  } else {
+
+    postings = [
+      {
+        account: getAccount(transfer.from, date),
+        amount: `-${amount}`,
+        currency: transfer.tokenInfo.symbol.toUpperCase(),
+      },
+      {
+        account: getAccount(transfer.to, date),
+        amount: `${amount}`,
+        currency: transfer.tokenInfo.symbol.toUpperCase(),
+      },
+    ];
+  } else if (tx.transfers.length > 2) {
     title += ` Cleanup`;
+
     for (const transfer of tx.transfers) {
       const amount = BigInt(transfer.value!) /
         10n ** BigInt(transfer.tokenInfo?.decimals!);
-      transaction += `  ${
-        getAccount(
-          transfer.from,
-          transfer.executionDate,
-        )
-      }  -${amount} ${transfer.tokenInfo?.symbol.toUpperCase()}
-    ${
-        getAccount(
-          transfer.to,
-          transfer.executionDate,
-        )
-      }  ${amount} ${transfer.tokenInfo?.symbol.toUpperCase()}\n`;
+
+      postings.push({
+        account: getAccount(transfer.from, date),
+        amount: `-${amount}`,
+        currency: transfer.tokenInfo?.symbol.toUpperCase() || "",
+      });
+
+      postings.push({
+        account: getAccount(transfer.to, date),
+        amount: `${amount}`,
+        currency: transfer.tokenInfo?.symbol.toUpperCase() || "",
+      });
     }
   }
-  const description = `${date} * "${title}"`;
 
-  let result = `${description}`;
-  result = result.concat(`\n  tx: "${tx.transactionHash || tx.txHash}"`);
-
+  // Add fee postings for multisig transactions
   if (tx.txType === "MULTISIG_TRANSACTION") {
-    result = result.concat(`\n  nonce: ${tx.nonce}`);
     assert(tx.fee, "Fee is not defined");
-    const fee = formatEther(BigInt(tx.fee));
     assert(tx.executor, "Executor is not defined");
-    result = result.concat(
-      `\n  ${getAccount(tx.executor, tx.executionDate)}  -${fee} ETH
-  ${getAccount("Expenses:Fees:Crypto", tx.executionDate)}  ${fee} ETH`,
-    );
+    const fee = formatEther(BigInt(tx.fee));
+
+    postings.push({
+      account: getAccount(tx.executor, date),
+      amount: `-${fee}`,
+      currency: "ETH",
+    });
+
+    postings.push({
+      account: getAccount("Expenses:Fees:Crypto", date),
+      amount: fee,
+      currency: "ETH",
+    });
   }
 
-  if (transaction !== "") result = result.concat(`\n${transaction}`);
-  console.log(result + "\n");
+  // Only create transaction if we have postings or it's a special case
+  if (postings.length > 0) {
+    const transaction = new Transaction({
+      date,
+      flag: "*",
+      payee: title,
+      metadata,
+      postings,
+    });
+
+    console.log(transaction.toString() + "\n");
+  }
 }
 
 main();
