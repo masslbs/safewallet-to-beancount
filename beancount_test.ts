@@ -228,7 +228,8 @@ Deno.test("Transaction - with total cost", () => {
         account: "Assets:MyBank:Checking",
         amount: "-400.00",
         currency: "USD",
-        totalCost: "436.01 CAD",
+        totalCost: "436.01",
+        totalCostCurrency: "CAD",
       },
       {
         account: "Assets:FR:SocGen:Checking",

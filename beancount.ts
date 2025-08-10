@@ -7,6 +7,7 @@ export type Postings = {
   currency: string;
   cost?: string;
   totalCost?: string;
+  totalCostCurrency?: string;
   price?: string;
   comment?: string;
   metadata?: MetaData;
@@ -80,6 +81,7 @@ export class Transaction {
           currency,
           cost,
           totalCost,
+          totalCostCurrency,
           price,
           comment: postingComment,
           metadata: postingMetadata,
@@ -99,7 +101,7 @@ export class Transaction {
           if (cost) {
             postingLine += ` {${cost}}`;
           } else if (totalCost) {
-            postingLine += ` @@ ${totalCost}`;
+            postingLine += ` @@ ${totalCost} ${totalCostCurrency}`;
           }
 
           if (price) {
