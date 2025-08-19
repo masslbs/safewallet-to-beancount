@@ -1,6 +1,6 @@
 type Flag = "!" | "*";
 export type MetaData = Record<string, string>;
-export type Postings = {
+export type Posting = {
   flag?: Flag;
   account: string;
   amount: string;
@@ -23,7 +23,7 @@ export class Transaction {
       narration?: string;
       tags?: string[];
       metadata?: MetaData;
-      postings: Postings[];
+      postings: Posting[];
     },
   ) {
   }

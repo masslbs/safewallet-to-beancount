@@ -3,19 +3,21 @@ import { formatEther } from "@wevm/viem";
 import { readFile } from "node:fs/promises";
 import SafeApiKit, {
   type AllTransactionsListResponse,
-  type EthereumTxWithTransfersResponse,
-  type SafeModuleTransactionWithTransfersResponse,
-  type SafeMultisigTransactionWithTransfersResponse,
-  type TransferResponse,
 } from "@safe-global/api-kit";
 import { assert } from "@std/assert";
-import { type Postings, Transaction } from "./beancount.ts";
+import { type Posting, Transaction } from "./beancount.ts";
+import {
+  type ICopyFilesArguments,
+  isSafeMultiSigTx,
+  type TxAll,
+} from "./utils.ts";
 
-interface ICopyFilesArguments {
-  address: string;
-  labels?: string;
-  help?: boolean;
-}
+import * as Cow from "./modules/cow.ts";
+import * as Send from "./modules/sends.ts";
+import * as Swap from "./modules/swap.ts";
+import * as CatchAll from "./modules/catchall.ts";
+
+const mods = [Cow, Send, Swap, CatchAll];
 
 const args = parse<ICopyFilesArguments>(
   {
@@ -74,10 +76,12 @@ function openAccount(account: string, date: Date) {
   }
 }
 
-function getAccount(address: string, date: Date) {
-  const labeled = labels[address];
+function getAccount(address: string, date: Date, open: boolean = true) {
+  const labeled = labels[address.toLowerCase()];
   if (labeled) {
-    openAccount(labeled, date);
+    if (open) {
+      openAccount(labeled, date);
+    }
     return labeled;
   } else {
     return address;
@@ -89,7 +93,12 @@ async function main() {
   if (args.labels) {
     try {
       const contents = await readFile(args.labels, { encoding: "utf8" });
-      labels = JSON.parse(contents);
+      // keys are converted to lowercase
+      labels = Object.fromEntries(
+        Object.entries(JSON.parse(contents)).map((
+          [k, v],
+        ) => [k.toLowerCase(), v]),
+      ) as Label;
     } catch (err: unknown) {
       if (err instanceof Error) {
         console.error(err.message);
@@ -102,12 +111,14 @@ async function main() {
   while (fetching) {
     const transactions: AllTransactionsListResponse = await apiKit
       .getAllTransactions(args.address, {
-        trusted: false,
+        trusted: true,
         ordering: "timestamp",
         limit,
         offset,
       });
-    transactions.results.forEach(txToEntry);
+    for (const tx of transactions.results) {
+      await txToEntry(tx);
+    }
     if (!transactions.next) {
       fetching = false;
     }
@@ -115,32 +126,27 @@ async function main() {
   }
 }
 
-function txToEntry(
-  tx:
-    | SafeModuleTransactionWithTransfersResponse
-    | SafeMultisigTransactionWithTransfersResponse
-    | EthereumTxWithTransfersResponse,
+async function txToEntry(
+  tx: TxAll,
 ) {
   assert(tx.executionDate, "Execution date is required");
   const date = new Date(tx.executionDate);
-  let title = "";
-
+  let narration = "";
   // some dapp interaction
   if ("origin" in tx && tx.origin?.length > 2) {
     try {
       const origin = JSON.parse(tx.origin);
-      title = `${origin.name} (${origin.url})`;
+      narration = `${origin.name} (${origin.url})`;
     } catch {
-      title = tx.origin;
+      narration = tx.origin;
     }
   }
+
   if ("dataDecoded" in tx && tx.dataDecoded) {
-    title = `${title} called ${tx.dataDecoded.method}`;
+    narration = `${narration} called ${tx.dataDecoded.method}`;
   }
 
-  let postings: Postings[] = [];
   const metadata: Record<string, string> = {};
-
   // Handle different transaction hash property names based on transaction type
   if ("transactionHash" in tx && tx.transactionHash) {
     metadata.tx = tx.transactionHash;
@@ -148,125 +154,50 @@ function txToEntry(
     metadata.tx = tx.txHash;
   }
 
-  if (tx.txType === "MULTISIG_TRANSACTION") {
+  const feePostings: Posting[] = [];
+
+  if (isSafeMultiSigTx(tx)) {
     metadata.nonce = tx.nonce?.toString();
-  }
-
-  // generally if there are two transfers, it's a swap
-  if (tx.transfers.length === 2) {
-    let transfer1: TransferResponse;
-    let transfer2: TransferResponse;
-
-    if (tx.transfers[0].to === args.address) {
-      transfer1 = tx.transfers[1];
-      transfer2 = tx.transfers[0];
-    } else {
-      transfer1 = tx.transfers[0];
-      transfer2 = tx.transfers[1];
-    }
-
-    const amount1 = BigInt(transfer1.value!) /
-      10n ** BigInt(transfer1.tokenInfo!.decimals!);
-    const amount2 = BigInt(transfer2.value!) /
-      10n ** BigInt(transfer2.tokenInfo!.decimals!);
-
-    if (title === "") {
-      title = `swapped ${transfer1.tokenInfo!.symbol.toUpperCase()} to ${
-        transfer2.tokenInfo!.symbol.toUpperCase()
-      }`;
-    }
-
-    postings = [
-      {
-        account: getAccount(transfer1.from, date),
-        amount: `-${amount1}`,
-        currency: transfer1.tokenInfo!.symbol.toUpperCase(),
-        totalCost: `${amount2} ${transfer2.tokenInfo!.symbol.toUpperCase()}`,
-      },
-      {
-        account: getAccount(transfer2.to, date),
-        amount: `${amount2}`,
-        currency: transfer2.tokenInfo!.symbol.toUpperCase(),
-      },
-    ];
-  } else if (tx.transfers.length === 1) {
-    // a simple transfer
-    // if the token is not trusted, we don't want to track it
-    const transfer = tx.transfers[0];
-    if (!transfer.tokenInfo?.trusted) return;
-
-    if (transfer.to === args.address) {
-      title = `received ${transfer.tokenInfo.symbol}`;
-    } else {
-      title = `sent ${transfer.tokenInfo.symbol}`;
-    }
-
-    const amount = BigInt(transfer.value!) /
-      10n ** BigInt(transfer.tokenInfo.decimals!);
-
-    postings = [
-      {
-        account: getAccount(transfer.from, date),
-        amount: `-${amount}`,
-        currency: transfer.tokenInfo.symbol.toUpperCase(),
-      },
-      {
-        account: getAccount(transfer.to, date),
-        amount: `${amount}`,
-        currency: transfer.tokenInfo.symbol.toUpperCase(),
-      },
-    ];
-  } else if (tx.transfers.length > 2) {
-    title += ` Cleanup`;
-
-    for (const transfer of tx.transfers) {
-      const amount = BigInt(transfer.value!) /
-        10n ** BigInt(transfer.tokenInfo?.decimals!);
-
-      postings.push({
-        account: getAccount(transfer.from, date),
-        amount: `-${amount}`,
-        currency: transfer.tokenInfo?.symbol.toUpperCase() || "",
-      });
-
-      postings.push({
-        account: getAccount(transfer.to, date),
-        amount: `${amount}`,
-        currency: transfer.tokenInfo?.symbol.toUpperCase() || "",
-      });
-    }
-  }
-
-  // Add fee postings for multisig transactions
-  if (tx.txType === "MULTISIG_TRANSACTION") {
+    // Add fee postings for multisig transactions
     assert(tx.fee, "Fee is not defined");
     assert(tx.executor, "Executor is not defined");
     const fee = formatEther(BigInt(tx.fee));
 
-    postings.push({
-      account: getAccount(tx.executor, date),
+    feePostings.push({
+      account: tx.executor,
       amount: `-${fee}`,
       currency: "ETH",
     });
 
-    postings.push({
-      account: getAccount("Expenses:Fees:Crypto", date),
+    feePostings.push({
+      account: "Expenses:Fees:Crypto",
       amount: fee,
       currency: "ETH",
     });
   }
 
-  // Only create transaction if we have postings or it's a special case
-  if (postings.length > 0) {
-    const transaction = new Transaction({
-      date,
-      flag: "*",
-      payee: title,
-      metadata,
-      postings,
-    });
+  const beanTx = new Transaction({
+    date,
+    payee: tx.to ? getAccount(tx.to, date, false) : "Created",
+    flag: "*",
+    narration,
+    metadata,
+    postings: [],
+  });
 
-    console.log(transaction.toString() + "\n");
+  // console.log(tx);
+  const mod = mods.find((mod) => mod.identify(tx));
+  await mod!.process({ ethTx: tx, beanTx, args });
+  const postings = beanTx.args.postings;
+  // add the tx fee postings
+  postings.push(...feePostings);
+  beanTx.args.postings = postings.map((posting: Posting) => {
+    posting.account = getAccount(posting.account, date);
+    return posting;
+  });
+
+  if (beanTx.args.postings.length > 0) {
+    console.log(beanTx.toString() + "\n");
   }
 }
 
