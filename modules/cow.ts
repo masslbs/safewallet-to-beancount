@@ -122,7 +122,7 @@ export async function process(
     ];
 
     beanTx.args.date = new Date(Number(block.timestamp) * 1000);
-    beanTx.args.payee = "cowswap";
+    beanTx.args.payee = "Cowswap";
     beanTx.args.narration =
       `Swapped ${sellAmount} ${sellTokenSymbol.result} for ${buyAmount} ${buyTokenSymbol.result}`;
     beanTx.args.postings = postings;

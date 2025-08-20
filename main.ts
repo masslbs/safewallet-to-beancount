@@ -26,9 +26,9 @@ const args = parse<ICopyFilesArguments>(
       alias: "a",
       description: "The address of the Safe Wallet",
     },
-    labels: {
+    settings: {
       type: String,
-      alias: "l",
+      alias: "s",
       optional: true,
       description: "A map between Ethereum addresses and Beancount accounts",
     },
@@ -54,10 +54,12 @@ const args = parse<ICopyFilesArguments>(
   },
 );
 
-type Label = {
-  [key: string]: string;
+type Settings = {
+  "labels": {
+    [key: string]: string;
+  };
 };
-let labels: Label = {};
+let settings: Settings;
 const usedLabels: Set<string> = new Set();
 
 // @ts-ignore: SafeApiKit seems to be not typed correctly
@@ -77,7 +79,7 @@ function openAccount(account: string, date: Date) {
 }
 
 function getAccount(address: string, date: Date, open: boolean = true) {
-  const labeled = labels[address.toLowerCase()];
+  const labeled = settings.labels[address.toLowerCase()];
   if (labeled) {
     if (open) {
       openAccount(labeled, date);
@@ -89,16 +91,18 @@ function getAccount(address: string, date: Date, open: boolean = true) {
 }
 
 async function main() {
-  // read the labels if we have any
-  if (args.labels) {
+  // read the settings if we have any
+  if (args.settings) {
     try {
-      const contents = await readFile(args.labels, { encoding: "utf8" });
+      const contents = await readFile(args.settings, { encoding: "utf8" });
       // keys are converted to lowercase
-      labels = Object.fromEntries(
-        Object.entries(JSON.parse(contents)).map((
+      //
+      settings = JSON.parse(contents);
+      settings.labels = Object.fromEntries(
+        Object.entries(settings.labels).map((
           [k, v],
         ) => [k.toLowerCase(), v]),
-      ) as Label;
+      );
     } catch (err: unknown) {
       if (err instanceof Error) {
         console.error(err.message);
@@ -185,7 +189,6 @@ async function txToEntry(
     postings: [],
   });
 
-  // console.log(tx);
   const mod = mods.find((mod) => mod.identify(tx));
   await mod!.process({ ethTx: tx, beanTx, args });
   const postings = beanTx.args.postings;
