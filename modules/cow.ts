@@ -115,7 +115,7 @@ export async function process(
         currency: sellTokenSymbol.result!,
       },
       {
-        account: "Crypto:Fees:Cow",
+        account: "Expenses:Fees:Crypto:Cow",
         amount: feeAmount,
         currency: sellTokenSymbol.result!,
       },

@@ -53,7 +53,7 @@
         packages.default = pkgs.buildDenoPackage {
           pname = "safe-to-beancount";
           version = "0.0.0";
-          denoDepsHash = "sha256-pWh87BBexSxQGtj7ESZM3utgQN19Nvn614imdrPPIno=";
+          denoDepsHash = "sha256-IGkK3KYLY351QIL/blEFhckh1PEXiFvlXpa4vUO4eHQ=";
           src = ./.;
           binaryEntrypointPath = "./main.ts";
           denoCompileFlags = [
