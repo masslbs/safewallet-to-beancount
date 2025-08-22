@@ -77,31 +77,13 @@ Deno.test("isSafeMultiSigTx - identifies ethereum transactions", () => {
   assertEquals(isSafeMultiSigTx(ethTx), false);
 });
 
-Deno.test("Type definitions - ICopyFilesArguments with required address", () => {
-  const args: ICopyFilesArguments = {
-    address: "0x1234567890123456789012345678901234567890",
-  };
-  assertEquals(typeof args.address, "string");
-  assertEquals(args.labels, undefined);
-  assertEquals(args.help, undefined);
-});
-
-Deno.test("Type definitions - ICopyFilesArguments with all fields", () => {
-  const args: ICopyFilesArguments = {
-    address: "0x1234567890123456789012345678901234567890",
-    labels: "test,labels,here",
-    help: true,
-  };
-  assertEquals(typeof args.address, "string");
-  assertEquals(typeof args.labels, "string");
-  assertEquals(typeof args.help, "boolean");
-});
-
-Deno.test("Type definitions - ICopyFilesArguments with help false", () => {
+Deno.test("Type definitions - ICopyFilesArguments with settings undefined", () => {
   const args: ICopyFilesArguments = {
     address: "0xabcdef1234567890abcdef1234567890abcdef12",
-    help: false,
+    settings: undefined,
+    noOpen: false,
   };
   assertEquals(args.address, "0xabcdef1234567890abcdef1234567890abcdef12");
-  assertEquals(args.help, false);
+  assertEquals(args.settings, undefined);
+  assertEquals(args.noOpen, false);
 });

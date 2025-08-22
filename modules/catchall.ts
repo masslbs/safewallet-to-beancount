@@ -5,5 +5,5 @@ export function identify(_tx: TxAll): boolean {
 }
 
 export function process({ ethTx }: ProcessArgs) {
-  return ethTx;
+  return Promise.resolve(ethTx);
 }

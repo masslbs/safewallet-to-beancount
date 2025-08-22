@@ -7,8 +7,8 @@ import type { Transaction } from "./beancount.ts";
 
 export interface ICopyFilesArguments {
   address: string;
-  settings?: string;
-  help?: boolean;
+  settings: string | undefined;
+  noOpen: boolean;
 }
 
 export type TxAll =

@@ -47,4 +47,5 @@ export function process({ ethTx, beanTx, args }: ProcessArgs) {
       currency: transfer2.tokenInfo!.symbol.toUpperCase(),
     },
   ];
+  return Promise.resolve(beanTx);
 }
