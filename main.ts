@@ -23,11 +23,19 @@
  * - `--help`: Show help information
  *
  * ## Settings File Format
+ * The settings file uses a two-layer mapping system for efficient address management:
  * ```json
  * {
- *   "labels": {
- *     "0x1234...": "Assets:Crypto:ETH:MyWallet",
- *     "0xabcd...": "Assets:Crypto:USDC:Exchange"
+ *   "accounts": {
+ *     "coinbase": "Assets:Crypto:Coinbase",
+ *     "myWallet": "Assets:Crypto:ETH:MyWallet",
+ *     "uniswap": "Assets:DeFi:Uniswap"
+ *   },
+ *   "addresses": {
+ *     "0x1234567890123456789012345678901234567890": "coinbase",
+ *     "0xabcdef1234567890abcdef1234567890abcdef12": "coinbase",
+ *     "0x9876543210987654321098765432109876543210": "myWallet",
+ *     "0xa0b86991c431e59edcd9748086c159d4c631df32": "uniswap"
  *   }
  * }
  * ```
@@ -104,11 +112,16 @@ const args = run(parser, {
 
 /**
  * Configuration structure for address-to-account mappings.
- * The settings file should contain a JSON object with a "labels" property
- * mapping Ethereum addresses (lowercase) to Beancount account names.
+ * The settings file uses a two-layer mapping system:
+ * 1. "accounts" maps friendly names to Beancount account names
+ * 2. "addresses" maps Ethereum addresses to friendly names
+ * This allows multiple addresses to share the same account easily.
  */
 type Settings = {
-  "labels": {
+  "accounts": {
+    [key: string]: string;
+  };
+  "addresses": {
     [key: string]: string;
   };
 };
@@ -146,6 +159,11 @@ function openAccount(account: string, date: Date) {
   }
 }
 
+function getPayee(address: string): string {
+  const payee = settings.addresses[address.toLowerCase()];
+  return payee || address;
+}
+
 /**
  * Converts an Ethereum address to a Beancount account name using the settings mapping.
  * If no mapping exists, returns the original address. Optionally opens the account.
@@ -156,15 +174,22 @@ function openAccount(account: string, date: Date) {
  * @returns The mapped account name or original address
  */
 function getAccount(address: string, date: Date, open: boolean = true) {
-  const labeled = settings.labels[address.toLowerCase()];
-  if (labeled) {
-    if (open) {
-      openAccount(labeled, date);
-    }
-    return labeled;
-  } else {
+  if (!settings?.addresses || !settings?.accounts) {
     return address;
   }
+
+  const payee = getPayee(address);
+  if (payee) {
+    const accountName = settings.accounts[payee];
+    if (accountName) {
+      if (open) {
+        openAccount(accountName, date);
+      }
+      return accountName;
+    }
+  }
+
+  return address;
 }
 
 /**
@@ -180,11 +205,13 @@ async function main() {
 
       // Convert all address keys to lowercase for consistent lookups
       // (Ethereum addresses are case-insensitive for comparison purposes)
-      settings.labels = Object.fromEntries(
-        Object.entries(settings.labels).map((
-          [k, v],
-        ) => [k.toLowerCase(), v]),
-      );
+      if (settings.addresses) {
+        settings.addresses = Object.fromEntries(
+          Object.entries(settings.addresses).map((
+            [k, v],
+          ) => [k.toLowerCase(), v]),
+        );
+      }
     } catch (err: unknown) {
       if (err instanceof Error) {
         console.error(err.message);
@@ -287,7 +314,7 @@ async function txToEntry(
   // Create the base Beancount transaction
   const beanTx = new Transaction({
     date,
-    payee: tx.to ? getAccount(tx.to, date, false) : "Created",
+    payee: tx.to ? getPayee(tx.to) : "Created",
     flag: "*", // Complete transaction flag
     narration,
     metadata,

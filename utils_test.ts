@@ -1,10 +1,5 @@
 import { assertEquals } from "@std/assert";
-import {
-  convertToDecimal,
-  type ICopyFilesArguments,
-  isSafeMultiSigTx,
-  type TxAll,
-} from "./utils.ts";
+import { convertToDecimal, isSafeMultiSigTx, type TxAll } from "./utils.ts";
 
 Deno.test("convertToDecimal - basic conversion", () => {
   assertEquals(convertToDecimal("123456", 2), "1234.56");
@@ -75,15 +70,4 @@ Deno.test("isSafeMultiSigTx - identifies ethereum transactions", () => {
   } as TxAll;
 
   assertEquals(isSafeMultiSigTx(ethTx), false);
-});
-
-Deno.test("Type definitions - ICopyFilesArguments with settings undefined", () => {
-  const args: ICopyFilesArguments = {
-    address: "0xabcdef1234567890abcdef1234567890abcdef12",
-    settings: undefined,
-    noOpen: false,
-  };
-  assertEquals(args.address, "0xabcdef1234567890abcdef1234567890abcdef12");
-  assertEquals(args.settings, undefined);
-  assertEquals(args.noOpen, false);
 });

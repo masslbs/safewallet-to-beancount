@@ -16,6 +16,8 @@ export const publicClient = createPublicClient({
 // https://repo.sourcify.dev/1/0x9008D19f58AAbD9eD0D60971565AA8510560ab41
 const GPv2Settlement = "0x9008D19f58AAbD9eD0D60971565AA8510560ab41";
 
+const processedOrders = new Set<string>();
+
 function getTradingPairInfo(a: string, b: string) {
   return publicClient.multicall({
     contracts: [
@@ -56,6 +58,10 @@ export async function process(
     isSafeMultiSigTx(ethTx) && ethTx.dataDecoded?.method === "setPreSignature"
   ) {
     const orderId = ethTx.dataDecoded?.parameters[0].value;
+    if (processedOrders.has(orderId)) {
+      return;
+    }
+    processedOrders.add(orderId);
     beanTx.args.metadata!.orderLink =
       `https://explorer.cow.fi/orders/${orderId}`;
     const order = await orderBookApi.getOrder(orderId);
